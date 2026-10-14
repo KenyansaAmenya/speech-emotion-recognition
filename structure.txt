@@ -1,0 +1,22 @@
+speech-emotion-recognition/
+├── data/raw/                  
+├── data/processed/
+├── notebooks/
+├── src/
+│   ├── __init__.py
+│   ├── config.py
+│   ├── data_loader.py
+│   ├── preprocessing.py
+│   ├── features.py
+│   ├── dataset.py
+│   ├── train.py
+│   ├── train_cnn.py
+│   ├── evaluate.py
+│   ├── predict.py
+│   └── app/
+│       ├── __init__.py
+│       └── main.py
+├── models/
+├── reports/
+├── requirements.txt
+└── README.md
