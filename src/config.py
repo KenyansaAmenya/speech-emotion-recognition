@@ -12,9 +12,9 @@ for d in (DATA_RAW, DATA_PROCESSED, MODELS_DIR, REPORTS_DIR):
 
 #Audio
 SAMPLE_RATE = 22050
-DURATION_SEC = 3.0          # fixed length: pad/trim to this
+DURATION_SEC = 3.0          
 N_SAMPLES = int(SAMPLE_RATE * DURATION_SEC)
-TOP_DB_TRIM = 25            # silence trimming threshold
+TOP_DB_TRIM = 25            
 
 # Features
 N_MFCC = 40
@@ -24,7 +24,7 @@ HOP_LENGTH = 512
 N_MELS_CNN = 128
 CNN_IMAGE_SIZE = 128        # mel spectrogram resized to CNN_IMAGE_SIZE x CNN_IMAGE_SIZE
 
-#RAVDESS emotion mapping (six-class task)
+#RAVDESS emotion mapping
 EMOTION_MAP = {
     1: "neutral",
     3: "happy",
@@ -38,7 +38,7 @@ LABEL2IDX = {label: i for i, label in enumerate(sorted(EMOTION_MAP.values()))}
 IDX2LABEL = {i: label for label, i in LABEL2IDX.items()}
 NUM_CLASSES = len(LABEL2IDX)
 
-# --- Split ---
+# Split
 TEST_SIZE = 0.15
 VAL_SIZE = 0.15
 RANDOM_STATE = 42
