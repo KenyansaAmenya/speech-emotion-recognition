@@ -1,0 +1,52 @@
+# Version control
+.git/
+.gitignore
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environment
+venv/
+.venv/
+env/
+ENV/
+
+# Data — downloaded/processed at runtime
+data/
+*.wav
+*.mp3
+*.flac
+*.ogg
+*.m4a
+*.npy
+
+# Models — fetched from Supabase at runtime
+models/
+*.joblib
+*.pt
+*.h5
+
+# Reports
+reports/
+
+# Notebooks
+notebooks/
+
+# Env & secrets
+.env
+.env.*
+*.env
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+Dockerfile
+.dockerignore
+docker-compose*.yml

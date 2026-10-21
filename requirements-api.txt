@@ -1,0 +1,10 @@
+librosa
+numpy
+scikit-learn
+soundfile
+joblib
+fastapi
+uvicorn
+python-multipart
+supabase==2.22.0   
+xgboost         

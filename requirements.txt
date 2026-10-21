@@ -15,3 +15,6 @@ python-multipart
 tqdm
 requests
 scipy
+supabase
+postgrest-py
+python-dotenv

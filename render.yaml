@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: ser-api
+    env: docker
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
