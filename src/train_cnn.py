@@ -7,15 +7,14 @@ import numpy as np
 import pandas as pd
 import torch
 import torch.nn as nn
-from sklearn.metrics import f1_score
+from sklearn.utils.class_weight import compute_class_weight
 from torch.utils.data import DataLoader
 
 from . import config
-from .dataset import MelSpectrogramDataset
+from .dataset import MelSpectrogramDataset, build_spectrogram_cache
 from .evaluate import evaluate_model
 
 
-# Compact CNN: 4 conv blocks + global pooling + FC. ~1M params.
 class SmallCNN(nn.Module):
 
     def __init__(self, num_classes: int = config.NUM_CLASSES):
@@ -37,6 +36,7 @@ class SmallCNN(nn.Module):
         x = self.pool(x).flatten(1)
         return self.classifier(x)
 
+
 def run_epoch(model, loader, criterion, optimizer, device, train=True):
     model.train() if train else model.eval()
     total_loss, correct, n = 0.0, 0, 0
@@ -55,8 +55,9 @@ def run_epoch(model, loader, criterion, optimizer, device, train=True):
             n += len(yb)
     return total_loss / n, correct / n
 
-# Wrap a torch model to mimic sklearn's predict / predict_proba API.
+
 class _TorchAdapter:
+
     def __init__(self, model, device, batch_size=64):
         self.model = model
         self.device = device
@@ -76,12 +77,15 @@ class _TorchAdapter:
     def predict(self, X):
         return self.predict_proba(X).argmax(1)
 
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--epochs", type=int, default=40)
     ap.add_argument("--batch-size", type=int, default=32)
     ap.add_argument("--lr", type=float, default=1e-3)
     ap.add_argument("--patience", type=int, default=7)
+    ap.add_argument("--num-workers", type=int, default=0,
+                    help="DataLoader workers (0 is safe on Windows/CPU).")
     args = ap.parse_args()
 
     # Seeding 
@@ -95,27 +99,42 @@ def main():
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print(f"Device: {device}")
 
+    # Metadata + spectrogram cache 
     df = pd.read_csv(config.DATA_PROCESSED / "metadata.csv")
-    df = df[df["load_ok"]].reset_index(drop=True)     # ← critical filter
+    df = df[df["load_ok"]].reset_index(drop=True)
 
+    print("Building spectrogram cache (first run only; cached afterwards)...")
+    df = build_spectrogram_cache(df)
+    print(f"Cached {len(df)} spectrograms.")
+
+    # DataLoaders 
     loaders = {
         s: DataLoader(
             MelSpectrogramDataset(df[df["split"] == s]),
             batch_size=args.batch_size,
             shuffle=(s == "train"),
-            num_workers=2,
-            persistent_workers=True,
+            num_workers=args.num_workers,
+            persistent_workers=(args.num_workers > 0),
             pin_memory=(device == "cuda"),
         )
         for s in ("train", "val", "test")
     }
 
+    # Model, weighted loss (handles neutral 2:1 imbalance), optimizer 
     model = SmallCNN().to(device)
-    criterion = nn.CrossEntropyLoss()
+
+    y_train = df[df["split"] == "train"]["label_idx"].values
+    cw = compute_class_weight(
+        "balanced", classes=np.arange(config.NUM_CLASSES), y=y_train)
+    class_weights = torch.tensor(cw, dtype=torch.float32).to(device)
+    print(f"Class weights: {np.round(cw, 3)}")
+    criterion = nn.CrossEntropyLoss(weight=class_weights)
+
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-4)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         optimizer, mode="max", factor=0.5, patience=3)
 
+    # Training loop
     best_val, best_state, patience_cnt = 0.0, copy.deepcopy(model.state_dict()), 0
     t0 = time.time()
     for ep in range(1, args.epochs + 1):
@@ -151,11 +170,12 @@ def main():
         },
         "best_val_acc": best_val,
     }, config.MODELS_DIR / "cnn_mel.pt")
+    print(f"\nSaved model -> {config.MODELS_DIR / 'cnn_mel.pt'} (best val acc {best_val:.4f})")
 
-    # Test evaluation through the model (not precomputed logits)
+    # Test evaluation through the model
     Xte, yte = [], []
     for xb, yb in loaders["test"]:
-        Xte.append(xb.numpy())                         # (B, 1, H, W)
+        Xte.append(xb.numpy())
         yte.append(yb.numpy())
     Xte = np.concatenate(Xte, axis=0)
     yte = np.concatenate(yte, axis=0)
@@ -167,6 +187,7 @@ def main():
 
     with open(config.REPORTS_DIR / "cnn_results.json", "w") as f:
         json.dump({"test": res, "best_val_acc": best_val}, f, indent=2)
+    print(f"Saved results -> {config.REPORTS_DIR / 'cnn_results.json'}")
 
 
 if __name__ == "__main__":

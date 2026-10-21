@@ -1,0 +1,64 @@
+# --- Data (large, downloadable — never commit) ---
+data/raw/
+data/processed/
+*.wav
+*.mp3
+*.flac
+*.ogg
+*.m4a
+*.zip
+*.npz
+*.npy
+
+# --- Trained models & artifacts ---
+models/*.joblib
+models/*.pt
+models/*.pkl
+models/*.h5
+
+# --- Generated reports ---
+reports/*.png
+reports/*.json
+!reports/.gitkeep
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+build/
+dist/
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# --- Virtual environments ---
+.venv/
+venv/
+env/
+ENV/
+
+# --- IDEs / editors ---
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# --- OS / misc ---
+Thumbs.db
+*.log
+.env
+.env.*
+!.env.example
+
+# --- Testing / coverage ---
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# --- Keep empty dirs tracked ---
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+!models/.gitkeep
