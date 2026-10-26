@@ -34,7 +34,9 @@ app = FastAPI(
 
 FRONTEND_ORIGINS = os.getenv(
     "FRONTEND_ORIGINS",
-    "http://localhost:5173,http://127.0.0.1:5173",
+    "http://localhost:5173,http://127.0.0.1:5173",    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "https://tonelabb.vercel.app",
 ).split(",")
 
 app.add_middleware(
@@ -114,6 +116,24 @@ async def predict_endpoint(file: UploadFile = File(...)):
             422,
             f"Unsupported file type '{suffix}'. Allowed: {sorted(ALLOWED_EXTENSIONS)}",
         )
+
+@app.get("/predictions")
+def predictions(limit: int = 50):
+    from ..supabase_store import get_client
+    client = get_client()
+    if client is None:
+        return []
+    try:
+        res = (client.table("predictions")
+               .select("id, emotion, top_k, duration_sec, created_at")
+               .order("created_at", desc=True)
+               .limit(limit)
+               .execute())
+        return res.data
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Could not fetch history: {e}"
+        )
+
 
     chunks, total = [], 0
     while chunk := await file.read(1 << 20):
