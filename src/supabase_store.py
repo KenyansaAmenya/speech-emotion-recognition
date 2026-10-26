@@ -66,18 +66,37 @@ def _download_with_retry(client: Client, bucket: str, path: str,
     for i in range(attempts):
         try:
             return client.storage.from_(bucket).download(path)
+
         except (httpx.RemoteProtocolError, httpx.ConnectError,
                 httpx.ReadError, httpx.WriteError) as e:
+            # Transient network errors — safe to retry
             last_exc = e
             if i < attempts - 1:
                 wait = 2 ** i
                 print(f"[supabase] download failed ({e}); retrying in {wait}s...")
                 time.sleep(wait)
-        except Exception as e:
-            # Non-transient error — don't retry
+            continue
+
+        except KeyError as e:
+
+            if "error" in e.args:
+                raise FileNotFoundError(
+                    f"Model not found in Supabase Storage. "
+                    f"bucket='{bucket}', path='{path}'. "
+                    f"Verify the file exists at that exact path in the "
+                    f"Supabase Dashboard AND that RLS allows the "
+                    f"service_role to SELECT from bucket '{bucket}'."
+                ) from e
             raise RuntimeError(f"Download failed: {e}") from e
+
+        except Exception as e:
+            # Any other non-transient error — don't retry
+            raise RuntimeError(f"Download failed: {e}") from e
+
     raise RuntimeError(
-        f"Failed to download {bucket}/{path} after {attempts} attempts: {last_exc}")
+        f"Failed to download {bucket}/{path} after {attempts} attempts: "
+        f"{last_exc}"
+    )
 
 
 def ensure_model() -> Path:
