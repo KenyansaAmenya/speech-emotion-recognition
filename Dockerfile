@@ -20,7 +20,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Application code
 COPY src/ ./src/
-COPY .env.example ./
 
 # Create output dirs so config.py doesn't complain at import time 
 RUN mkdir -p data/raw data/processed models reports
