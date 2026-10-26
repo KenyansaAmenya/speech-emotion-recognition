@@ -13,3 +13,4 @@ postgrest==1.1.1
 storage3==0.12.1
 realtime==2.7.0 
 xgboost         
+python-dotenv==1.0.1
