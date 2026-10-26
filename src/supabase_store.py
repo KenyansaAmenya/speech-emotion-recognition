@@ -8,12 +8,17 @@ from typing import Optional
 
 from supabase import create_client, Client
 
+from dotenv import load_dotenv
+load_dotenv()
+
 logger = logging.getLogger(__name__)
 
+
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
+
 SUPABASE_KEY = (
-    os.environ.get("SUPABASE_SERVICE_KEY")          # preferred
-    or os.environ.get("SUPABASE_KEY", "")           # fallback
+    os.environ.get("SUPABASE_SERVICE_KEY")     # preferred
+    or os.environ.get("SUPABASE_KEY", "")      # fallback
 )
 
 MODEL_BUCKET = os.environ.get("MODEL_BUCKET", "models")
@@ -24,6 +29,7 @@ LOCAL_MODEL_FILE = LOCAL_MODEL_DIR / "ser_pipeline.joblib"
 
 PREDICTION_TABLE = os.environ.get("PREDICTION_TABLE", "predictions")
 
+MODEL_NAME = os.environ.get("MODEL_NAME", "ser_pipeline.joblib")
 
 _client: Optional[Client] = None
 
@@ -40,26 +46,32 @@ def _get_client() -> Client:
         )
 
     _client = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+    key_kind = "service_role" if SUPABASE_KEY.count(".") == 2 else "unknown"
     logger.info(
-        "Supabase client initialised (url=%s, key=service_role=%s)",
+        "Supabase client initialised (url=%s, key_kind=%s)",
         SUPABASE_URL,
-        SUPABASE_KEY.startswith("eyJ") and "jwt" or "unknown",
+        key_kind,
     )
     return _client
+
+
+def get_client() -> Client:
+    return _get_client()
+
 
 def _download_with_retry(
     client: Client,
     bucket: str,
     path: str,
     retries: int = 3,
-    timeout: float = 30.0,
 ) -> bytes:
-
     storage = client.storage.from_(bucket)
+
     try:
         storage._client.base_url = f"{SUPABASE_URL}/storage/v1"
     except Exception:
-        pass 
+        pass
 
     last_exc: Optional[Exception] = None
 
@@ -84,22 +96,19 @@ def _download_with_retry(
             msg = str(e).lower()
             last_exc = e
 
-            # Real 404 from HTTP layer
             if "404" in msg or "not found" in msg:
                 raise FileNotFoundError(
                     f"Model not found in Supabase Storage: "
                     f"bucket='{bucket}', path='{path}'."
                 ) from e
 
-            # Real 401/403
-            if "401" in msg or "403" in msg or "unauthorized" in msg or "forbidden" in msg:
+            if any(tok in msg for tok in ("401", "403", "unauthorized", "forbidden")):
                 raise PermissionError(
                     f"Supabase denied access to bucket='{bucket}'. "
                     f"Check that SUPABASE_SERVICE_KEY is the service_role key "
                     f"(not the anon key) and that bucket RLS permits SELECT."
                 ) from e
 
-            # Transient — retry with exponential backoff
             if attempt < retries:
                 delay = 2 ** (attempt - 1)
                 logger.warning(
@@ -112,7 +121,6 @@ def _download_with_retry(
     raise RuntimeError(
         f"Storage download failed after {retries} attempts: {last_exc}"
     ) from last_exc
-
 
 def _log_bucket_contents(client: Client, bucket: str) -> None:
     try:
@@ -139,12 +147,9 @@ def _log_bucket_contents(client: Client, bucket: str) -> None:
     except Exception as e:
         logger.error("Could not list bucket '%s': %s", bucket, e)
 
-
 def ensure_model() -> Path:
-
     LOCAL_MODEL_DIR.mkdir(parents=True, exist_ok=True)
 
-    # Already cached locally
     if LOCAL_MODEL_FILE.exists() and LOCAL_MODEL_FILE.stat().st_size > 0:
         logger.info(
             "Model already present locally at %s (%d bytes)",
@@ -172,25 +177,26 @@ def ensure_model() -> Path:
     )
     return LOCAL_MODEL_FILE
 
-# Prediction logging 
 def log_prediction(
     emotion: str,
     top_k: list[dict],
     duration_sec: float,
-    customer_id: Optional[str] = None,
+    model_name: str = MODEL_NAME,
 ) -> None:
 
     try:
         client = _get_client()
+
+        # Payload must match the table schema exactly.
         payload = {
             "emotion": emotion,
             "top_k": top_k,
             "duration_sec": duration_sec,
+            "model_name": model_name,
         }
-        if customer_id:
-            payload["customer_id"] = customer_id
 
         client.table(PREDICTION_TABLE).insert(payload).execute()
         logger.debug("Prediction logged: %s", emotion)
+
     except Exception as e:
         logger.warning("Failed to log prediction to Supabase: %s", e)
