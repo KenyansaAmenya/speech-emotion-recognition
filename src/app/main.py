@@ -26,25 +26,40 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Speech Emotion Recognition API",
-    description=("Classifies acted speech into 6 emotion labels. "
-                 "Predictions are data-driven labels, not measurements of true emotion."),
+    description=(
+        "Classifies acted speech into 6 emotion labels. "
+        "Predictions are data-driven labels, not measurements of true emotion."
+    ),
     version="1.0.0",
     lifespan=lifespan,
 )
 
-FRONTEND_ORIGINS = os.getenv(
-    "FRONTEND_ORIGINS",
-    "http://localhost:5173,http://127.0.0.1:5173",    "http://localhost:5173",
-    "http://127.0.0.1:5173",
-    "https://tonelabb.vercel.app",
-).split(",")
+
+# CORS 
+_default_origins = (
+    "http://localhost:5173,"
+    "http://127.0.0.1:5173,"
+    "https://tonelabb.vercel.app"
+)
+
+FRONTEND_ORIGINS = os.getenv("FRONTEND_ORIGINS", _default_origins)
+allowed_origins = [o.strip() for o in FRONTEND_ORIGINS.split(",") if o.strip()]
+
+if not allowed_origins:
+    raise RuntimeError("FRONTEND_ORIGINS is empty — CORS would reject every request.")
+
+print(f"[CORS] Allowed origins: {allowed_origins}")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[o.strip() for o in FRONTEND_ORIGINS if o.strip()],
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=allowed_origins,
+    allow_credentials=False,
+    allow_methods=["GET", "POST"],
+    allow_headers=["Content-Type", "X-Request-ID"],
+    expose_headers=["X-Request-ID"],
+    max_age=600,
 )
+
 
 ALLOWED_EXTENSIONS = {".wav", ".mp3", ".flac", ".ogg", ".m4a"}
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024
@@ -59,7 +74,6 @@ class PredictionResponse(BaseModel):
 
 
 def _validate_and_predict(tmp_path: str) -> tuple[dict, float]:
-
     # 1. Header check (fast)
     try:
         info = sf.info(tmp_path)
@@ -96,20 +110,44 @@ def root():
         "docs": "/docs",
         "health": "/health",
         "predict": "POST /predict (multipart file upload)",
+        "predictions": "GET /predictions (recent history)",
     }
 
 
 @app.get("/health")
 def health():
     try:
-        load_pipeline()                # cached — ~1 µs
+        load_pipeline()  # cached
         return {"status": "ok", "classes": 6}
     except Exception as e:
         raise HTTPException(503, f"Model unavailable: {e}")
 
 
+@app.get("/predictions")
+def predictions(limit: int = 50):
+    """Return recent prediction history from Supabase."""
+    from ..supabase_store import get_client
+
+    client = get_client()
+    if client is None:
+        return []
+
+    try:
+        res = (
+            client.table("predictions")
+            .select("id, emotion, top_k, duration_sec, created_at")
+            .order("created_at", desc=True)
+            .limit(limit)
+            .execute()
+        )
+        return res.data
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Could not fetch history: {e}")
+
+
 @app.post("/predict", response_model=PredictionResponse)
 async def predict_endpoint(file: UploadFile = File(...)):
+    """Accept an audio file, run SER, return the predicted emotion."""
     suffix = Path(file.filename or "").suffix.lower()
     if suffix not in ALLOWED_EXTENSIONS:
         raise HTTPException(
@@ -117,24 +155,7 @@ async def predict_endpoint(file: UploadFile = File(...)):
             f"Unsupported file type '{suffix}'. Allowed: {sorted(ALLOWED_EXTENSIONS)}",
         )
 
-@app.get("/predictions")
-def predictions(limit: int = 50):
-    from ..supabase_store import get_client
-    client = get_client()
-    if client is None:
-        return []
-    try:
-        res = (client.table("predictions")
-               .select("id, emotion, top_k, duration_sec, created_at")
-               .order("created_at", desc=True)
-               .limit(limit)
-               .execute())
-        return res.data
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Could not fetch history: {e}"
-        )
-
-
+    # Read in 1 MB chunks, enforce size cap
     chunks, total = [], 0
     while chunk := await file.read(1 << 20):
         total += len(chunk)
@@ -151,7 +172,8 @@ def predictions(limit: int = 50):
 
         result, duration = await run_in_threadpool(_validate_and_predict, tmp_path)
 
-        asyncio.create_task(
+        # Fire-and-forget logging to Supabase (with error visibility)
+        task = asyncio.create_task(
             asyncio.to_thread(
                 log_prediction,
                 emotion=result["emotion"],
@@ -159,6 +181,15 @@ def predictions(limit: int = 50):
                 duration_sec=duration,
             )
         )
+
+        def _log_task_error(t: asyncio.Task):
+            if t.cancelled():
+                return
+            exc = t.exception()
+            if exc:
+                print(f"[log_prediction] background task failed: {exc!r}")
+
+        task.add_done_callback(_log_task_error)
 
         return PredictionResponse(
             emotion=result["emotion"],
