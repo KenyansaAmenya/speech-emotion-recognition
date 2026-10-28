@@ -249,7 +249,11 @@ uvicorn src.app.main:app --host 0.0.0.0 --port ${PORT}
 - No accuracy or other performance figure is claimed here; training generates evaluation results in `reports/`.
 - The repository does not include the dataset audio, generated metadata, or model files.
 - The API loads the MFCC pipeline. The separately trained CNN is not available through the API code currently in the repository.
-<img width="1264" height="902" alt="2026-10-28 21 26 38" src="https://github.com/user-attachments/assets/46bbbe6c-dca1-42c0-afc8-3d8b2cb94d78" />
+
+## How it works Video
+
+https://github.com/user-attachments/assets/538c0977-4774-4147-9407-d67ac2819488
+
 
 ## License
 Felix Amenya Kenyansa | Data science & Analytics
